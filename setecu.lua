@@ -1,0 +1,1360 @@
+-- =========================================================================
+--                          DEKLARASI GLOBAL
+-- =========================================================================
+
+-- Fungsi-fungsi string dan bit dasar
+local char = string.char;          -- Alias untuk string.char
+local byte = string.byte;          -- Alias untuk string.byte
+local sub = string.sub;            -- Alias untuk string.sub
+local bit_lib = bit32 or bit;      -- Menggunakan bit32 jika tersedia, jika tidak menggunakan bit
+local bit_xor = bit_lib.bxor;      -- Alias untuk fungsi bitwise XOR
+local table_concat = table.concat; -- Alias untuk table.concat
+local table_insert = table.insert; -- Alias untuk table.insert
+
+-- Fungsi XOR Sederhana (digunakan dalam dekripsi)
+local function xor_string(data, key)
+    local result = {};
+    for i = 1, #data do
+        -- Menghitung byte XOR dan menyimpannya sebagai karakter
+        table_insert(result, char(bit_xor(byte(sub(data, i, i + 1)), byte(sub(key, 1 + (i % #key), 1 + (i % #key) + 1))) % 256));
+    end
+    return table_concat(result);
+end
+
+-- Memuat dan menjalankan Rayfield UI Library
+local rayfield_lib = loadstring(game:HttpGet("https://raw.githubusercontent.com/RullzsyHUB/roblox-scripts/refs/heads/main/UI%20Liblary/Rayfield.lua"))();
+
+-- Membuat Jendela Utama UI
+local window_ui = rayfield_lib:CreateWindow({
+    ["Name"] = "IM HIRAKO | MOUNT SETECU",
+    ["Icon"] = "braces",
+    ["LoadingTitle"] = "Created By Hirakoxs",
+    ["LoadingSubtitle"] = "Follow Tiktok: @iskaalwayslose",
+    ["ShowText"] = "Hirako"
+});
+
+-- Membuat Tab-tab dalam UI
+local tab_akun = window_ui:CreateTab("Account", "user");
+local tab_auto_walk = window_ui:CreateTab("Auto Walk", "bot");
+local tab_auto_summit = window_ui:CreateTab("Auto Summit", "flag");
+local tab_teleport = window_ui:CreateTab("Teleport", "layers");
+local tab_update_script = window_ui:CreateTab("Update Script", "file");
+local tab_credits = window_ui:CreateTab("Credits", "scroll-text");
+
+-- Mengambil Service Roblox
+local players_service = game:GetService("Players");
+local run_service = game:GetService("RunService");
+local http_service = game:GetService("HttpService");
+
+-- Mengambil Data Pemain Lokal
+local local_player = players_service.LocalPlayer;
+local player_char = local_player.Character or local_player.CharacterAdded:Wait();
+local player_humanoid = player_char:WaitForChild("Humanoid");
+local player_hrp = player_char:WaitForChild("HumanoidRootPart");
+local set_clipboard = setclipboard or toclipboard; -- Fungsi untuk menyalin ke clipboard
+
+-- Konfigurasi API Server
+local api_config = {
+    ["base_url"] = "https://monotonal-unhoneyed-rita.ngrok-free.dev",
+    ["get_user_endpoint"] = "/get_user.php"
+};
+
+-- Fungsi untuk melakukan permintaan HTTP (RequestAsync/GetAsync/game:HttpGet)
+local function send_http_request(url, method, body, headers)
+    method = method or "GET";
+    local request_data = {
+        ["Url"] = url,
+        ["Method"] = method
+    };
+    if headers then
+        request_data.Headers = headers;
+    end
+    if (body and (method == "POST")) then
+        request_data.Body = body;
+    end
+
+    local success_request, result_request = pcall(function()
+        return http_service:RequestAsync(request_data);
+    end);
+
+    if (success_request and result_request) then
+        if (result_request.Success and (result_request.StatusCode == 200)) then
+            return true, result_request.Body;
+        else
+            return false, "HTTP Error: " .. (result_request.StatusCode or "Unknown") .. " - " .. (result_request.StatusMessage or "Unknown error");
+        end
+    end
+
+    -- Mencoba fallback GET (untuk executor yang mungkin tidak mendukung RequestAsync penuh)
+    if (method == "GET") then
+        local success_get_async, result_get_async = pcall(function()
+            return http_service:GetAsync(url, false);
+        end);
+        if (success_get_async and result_get_async) then
+            return true, result_get_async;
+        end
+        local success_http_get, result_http_get = pcall(function()
+            return game:HttpGet(url);
+        end);
+        if (success_http_get and result_http_get) then
+            return true, result_http_get;
+        end
+    end
+
+    return false, tostring(result_request);
+end
+
+local user_token = getgenv().UserToken or nil; -- Token pengguna
+local account_data = {
+    ["username"] = "Guest",
+    ["created_at"] = "N/A",
+    ["expire_days"] = 0,
+    ["last_update"] = 0
+}; -- Data akun default
+
+-- Elemen UI Tab Akun
+local section_info_akun = tab_akun:CreateSection("Informasi Akun");
+local paragraph_status_akun = tab_akun:CreateParagraph({
+    ["Title"] = "📊 Akun Status",
+    ["Content"] = "🔄 Menginisialisasi...\n⏳ Tunggu sebentar..."
+});
+local paragraph_beli_kunci = tab_akun:CreateParagraph({
+    ["Title"] = "💡 Ingin beli kunci nya lagi?",
+    ["Content"] = "Silahkan untuk membuat ticket di discord"
+});
+
+-- Fungsi untuk mendapatkan status kedaluwarsa berdasarkan jumlah hari
+local function get_expire_status(days_left)
+    if (days_left <= 0) then
+        return {
+            ["emoji"] = "🔴",
+            ["status"] = "Expire"
+        };
+    elseif (days_left <= 1) then
+        return {
+            ["emoji"] = "🟠",
+            ["status"] = "1 day"
+        };
+    elseif (days_left <= 7) then
+        return {
+            ["emoji"] = "🟡",
+            ["status"] = days_left .. " days"
+        };
+    else
+        return {
+            ["emoji"] = "🟢",
+            ["status"] = days_left .. " days"
+        };
+    end
+end
+
+-- Fungsi untuk memuat/memperbarui data akun dari server
+local function load_account_data()
+    if (not user_token or (user_token == "")) then
+        paragraph_status_akun:Set({
+            ["Title"] = "🚫 Error",
+            ["Content"] = "- Kamu tidak memiliki token.\n- Silakan lakukan otentikasi terlebih dahulu di tab otentikasi."
+        });
+        return;
+    end
+
+    paragraph_status_akun:Set({
+        ["Title"] = "🔄 Muat Data Akun",
+        ["Content"] = "⏳ Menghubungkan ke server...\n📡 Mendapatkan informasi akun Anda..."
+    });
+
+    local encoded_token = http_service:UrlEncode(tostring(user_token));
+    local request_url = api_config.base_url .. api_config.get_user_endpoint .. "?token=" .. encoded_token;
+    local request_headers = {
+        ["Content-Type"] = "application/json",
+        ["User-Agent"] = "Roblox/WinInet",
+        ["ngrok-skip-browser-warning"] = "true"
+    };
+
+    local success_api, response_body = send_http_request(request_url, "GET", nil, request_headers);
+
+    if not success_api then
+        paragraph_status_akun:Set({
+            ["Title"] = "🚨 Connection Error",
+            ["Content"] = "❌ Failed to connect to server.\n🌐 Please check your internet connection.\n\nError: " .. tostring(response_body)
+        });
+        return;
+    end
+
+    local success_json, decoded_json = pcall(function()
+        return http_service:JSONDecode(response_body);
+    end);
+
+    if not success_json then
+        paragraph_status_akun:Set({
+            ["Title"] = "🔐 Server Error",
+            ["Content"] = "❌ Invalid server response format.\n🛠️ Please try again later."
+        });
+        return;
+    end
+
+    if (not decoded_json or (type(decoded_json) ~= "table")) then
+        paragraph_status_akun:Set({
+            ["Title"] = "🔐 Data Error",
+            ["Content"] = "❌ Invalid response structure.\n🛠️ Please contact support."
+        });
+        return;
+    end
+
+    if (decoded_json.status ~= "success") then
+        local error_message = tostring(decoded_json.message or "Authentication failed");
+        paragraph_status_akun:Set({
+            ["Title"] = "🔐 Authentication Failed",
+            ["Content"] = "❌ " .. error_message .. "\n🔄 Please re-authenticate in the Authentication tab."
+        });
+        return;
+    end
+
+    -- Update data akun
+    account_data.username = tostring(decoded_json.name or "Unknown");
+    account_data.created_at = tostring(decoded_json.created_at or "N/A");
+    account_data.expire_days = tonumber(decoded_json.expire_days) or 0;
+    account_data.role = tostring(decoded_json.role or "Member");
+    account_data.last_update = tick();
+
+    local expire_status = get_expire_status(account_data.expire_days);
+    local member_since_date = "N/A";
+
+    -- Mencoba mem-parsing tanggal jika tersedia
+    if (account_data.created_at ~= "N/A") then
+        local success_parse, parsed_date = pcall(function()
+            return account_data.created_at:match("(%d+%-%d+%-%d+)");
+        end);
+        if (success_parse and parsed_date) then
+            member_since_date = parsed_date;
+        else
+            member_since_date = account_data.created_at;
+        end
+    end
+
+    -- Menampilkan status akun yang diperbarui
+    paragraph_status_akun:Set({
+        ["Title"] = "👨🏻‍💼 Welcome, " .. account_data.username,
+        ["Content"] = string.format("🏷️ Role          : %s\n⏰ Expire        : %s %s\n📅 Member since : %s", account_data.role, expire_status.emoji, expire_status.status, member_since_date)
+    });
+end
+
+-- Bagian Quick Actions Tab Akun
+local section_quick_actions = tab_akun:CreateSection("Quick Actions");
+
+tab_akun:CreateButton({
+    ["Name"] = "🔄 Refesh Informasi Akun",
+    ["Callback"] = function()
+        user_token = getgenv().UserToken; -- Memuat ulang token
+        load_account_data();
+    end
+});
+
+tab_akun:CreateButton({
+    ["Name"] = "🛒 Klik disini untuk mebeli kunci",
+    ["Callback"] = function()
+        local discord_link = "https://discord.gg/KEajwZQaRd";
+        if set_clipboard then
+            set_clipboard(discord_link);
+            rayfield_lib:Notify({
+                ["Title"] = "📋 Link Copied!",
+                ["Content"] = "Link Discord di salin ke clipboard.\nJoin RullzsyHUB Discord server",
+                ["Duration"] = 4
+            });
+        else
+            rayfield_lib:Notify({
+                ["Title"] = "🌐 Discord Link",
+                ["Content"] = discord_link .. "\nJoin RullzsyHUB Discord server",
+                ["Duration"] = 5
+            });
+        end
+    end
+});
+
+-- Memuat data akun saat script pertama kali dijalankan
+task.spawn(function()
+    task.wait(2);
+    load_account_data();
+end);
+
+-- =========================================================================
+--                          LOGIC AUTO WALK
+-- =========================================================================
+
+local base_folder_name = "RullzsyHUB";
+local data_folder_path = base_folder_name .. "/json_mt_stecu";
+
+-- Memastikan folder ada
+if not isfolder(base_folder_name) then
+    makefolder(base_folder_name);
+end
+if not isfolder(data_folder_path) then
+    makefolder(data_folder_path);
+end
+
+local json_base_url = "https://raw.githubusercontent.com/RullzsyHUB/roblox-scripts-json/refs/heads/main/json_mt_stecu/";
+local checkpoint_files = {
+    "spawnpoint.json",
+    "checkpoint_1.json",
+    "checkpoint_2.json",
+    "checkpoint_3.json",
+    "checkpoint_4.json",
+    "checkpoint_5.json",
+    "checkpoint_6.json",
+    "checkpoint_7.json",
+    "checkpoint_8.json",
+    "checkpoint_9.json",
+    "checkpoint_10.json",
+    "checkpoint_11.json",
+    "checkpoint_12.json",
+    "checkpoint_13.json",
+    "checkpoint_14.json",
+    "checkpoint_15.json",
+    "checkpoint_16.json",
+    "checkpoint_17.json",
+    "checkpoint_18.json",
+    "checkpoint_19.json",
+    "checkpoint_20.json",
+    "checkpoint_21.json",
+    "checkpoint_22.json",
+    "checkpoint_23.json",
+    "checkpoint_24.json",
+    "checkpoint_25.json"
+};
+
+-- Status Auto Walk / Replay
+local is_playing = false;        -- Status apakah replay sedang berjalan
+local heartbeat_conn = nil;      -- Koneksi RunService.Heartbeat
+local is_auto_mode = false;      -- Apakah dalam mode Auto (Start to End)
+local auto_checkpoint_index = 0; -- Index checkpoint saat ini dalam mode auto
+local is_paused = false;         -- Status jeda
+local is_manual_mode = false;    -- Variabel tidak terpakai, mungkin salah penamaan
+local pause_time_offset = 0;     -- Offset waktu yang dihabiskan saat dijeda
+local time_at_pause = 0;         -- Waktu (tick) saat dijeda
+local current_time = 0;          -- Waktu saat ini (tick)
+local playback_time = 0;         -- Waktu berjalan dalam replay
+
+-- Fungsi utilitas posisi
+local function vector3_to_xyz(vector3)
+    return {
+        x = vector3.X,
+        y = vector3.Y,
+        z = vector3.Z
+    };
+end
+
+local function xyz_to_vector3(xyz)
+    return Vector3.new(xyz.x, xyz.y, xyz.z);
+end
+
+-- Fungsi Interpolasi Linear (Lerp)
+local function lerp_float(a, b, t)
+    return a + ((b - a) * t);
+end
+
+local function lerp_vector3(v1, v2, t)
+    return Vector3.new(lerp_float(v1.X, v2.X, t), lerp_float(v1.Y, v2.Y, t), lerp_float(v1.Z, v2.Z, t));
+end
+
+-- Fungsi Interpolasi Sudut (Normalisasi)
+local function lerp_angle(angle1, angle2, t)
+    local delta_angle = angle2 - angle1;
+    -- Normalisasi delta_angle ke rentang [-pi, pi]
+    while delta_angle > math.pi do
+        delta_angle = delta_angle - (2 * math.pi);
+    end
+    while delta_angle < -math.pi do
+        delta_angle = delta_angle + (2 * math.pi);
+    end
+    return angle1 + (delta_angle * t);
+end
+
+-- Fungsi untuk memastikan file JSON checkpoint terunduh
+local function ensure_checkpoint_file(filename)
+    local filepath = data_folder_path .. "/" .. filename;
+    if isfile(filepath) then
+        return true, filepath;
+    end
+
+    -- Mencoba mengunduh file
+    local success_download, downloaded_data = pcall(function()
+        return game:HttpGet(json_base_url .. filename);
+    end);
+
+    if (success_download and downloaded_data and (#downloaded_data > 0)) then
+        writefile(filepath, downloaded_data);
+        return true, filepath;
+    end
+
+    return false, nil;
+end
+
+-- Fungsi untuk memuat data JSON checkpoint
+local function load_checkpoint_data(filename)
+    local filepath = data_folder_path .. "/" .. filename;
+    if not isfile(filepath) then
+        warn("File not found:", filepath);
+        return nil;
+    end
+
+    local success_load, data_or_error = pcall(function()
+        local file_content = readfile(filepath);
+        if (not file_content or (file_content == "")) then
+            error("Empty file");
+        end
+        return http_service:JSONDecode(file_content);
+    end);
+
+    if (success_load and data_or_error) then
+        return data_or_error;
+    else
+        warn("❌ Load error for", filename, ":", data_or_error);
+        return nil;
+    end
+end
+
+-- Fungsi untuk mencari indeks frame replay dan faktor interpolasi berdasarkan waktu
+local function get_playback_frame(frames, time)
+    if (#frames == 0) then
+        return nil, nil, 0;
+    end
+    if (time <= frames[1].time) then
+        return 1, 1, 0;
+    end
+    if (time >= frames[#frames].time) then
+        return #frames, #frames, 0;
+    end
+
+    -- Pencarian biner untuk frame (berlaku cepat)
+    local low, high = 1, #frames;
+    while low < (high - 1) do
+        local mid = math.floor((low + high) / 2);
+        if (frames[mid].time <= time) then
+            low = mid;
+        else
+            high = mid;
+        end
+    end
+
+    local start_index, end_index = low, high;
+    local start_time = frames[start_index].time;
+    local end_time = frames[end_index].time;
+
+    local time_diff = end_time - start_time;
+    -- Menghitung faktor interpolasi (t)
+    local lerp_factor = ((time_diff > 0) and math.clamp((time - start_time) / time_diff, 0, 1)) or 0;
+
+    return start_index, end_index, lerp_factor;
+end
+
+-- Fungsi untuk menghentikan replay
+local function stop_replay()
+    is_playing = false;
+    is_paused = false;
+    pause_time_offset = 0;
+    playback_time = 0;
+    current_time = 0;
+
+    if heartbeat_conn then
+        heartbeat_conn:Disconnect();
+        heartbeat_conn = nil;
+    end
+end
+
+-- Fungsi untuk memulai replay dengan data frame
+local function start_replay(frames, on_complete)
+    if (not frames or (#frames == 0)) then
+        warn("No data to play!");
+        if on_complete then
+            on_complete();
+        end
+        return;
+    end
+
+    if is_playing then
+        stop_replay();
+    end
+
+    is_playing = true;
+    is_paused = false;
+    pause_time_offset = 0;
+    playback_time = 0;
+
+    local start_tick = tick();
+    current_time = start_tick;
+
+    local is_jumping = false; -- Melacak status jumping
+
+    if heartbeat_conn then
+        heartbeat_conn:Disconnect();
+        heartbeat_conn = nil;
+    end
+
+    -- Mengatur posisi awal karakter ke frame pertama
+    local first_frame = frames[1];
+    if (player_char and player_char:FindFirstChild("HumanoidRootPart")) then
+        local hrp = player_char.HumanoidRootPart;
+        local position = xyz_to_vector3(first_frame.position);
+        local rotation = first_frame.rotation or 0;
+        local cframe = CFrame.new(position) * CFrame.Angles(0, rotation, 0);
+
+        hrp.CFrame = cframe;
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0);
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0);
+        if player_humanoid then
+            player_humanoid:Move(xyz_to_vector3(first_frame.moveDirection or {
+                x = 0,
+                y = 0,
+                z = 0
+            }), false);
+        end
+    end
+
+    -- Loop Replay menggunakan Heartbeat
+    heartbeat_conn = run_service.Heartbeat:Connect(function(delta_time)
+        if not is_playing then
+            return;
+        end
+
+        if is_paused then
+            if (time_at_pause == 0) then
+                time_at_pause = tick();
+            end
+            current_time = tick();
+            return;
+        elseif (time_at_pause > 0) then
+            -- Menghitung waktu yang dihabiskan saat dijeda dan mereset waktu jeda
+            pause_time_offset = pause_time_offset + (tick() - time_at_pause);
+            time_at_pause = 0;
+            current_time = tick();
+        end
+
+        if (not player_char or not player_char:FindFirstChild("HumanoidRootPart")) then
+            return;
+        end
+        -- Memperbarui referensi humanoid jika diperlukan
+        if (not player_humanoid or (player_humanoid.Parent ~= player_char)) then
+            player_humanoid = player_char:FindFirstChild("Humanoid");
+        end
+
+        local current_tick = tick();
+        -- Menghitung waktu berlalu sejak frame terakhir diolah
+        local elapsed_time = current_tick - current_time;
+        current_time = current_tick;
+        elapsed_time = math.min(elapsed_time, 0.1); -- Batasi delta_time maksimum
+
+        -- Memperbarui waktu putar
+        playback_time = playback_time + elapsed_time;
+
+        local total_replay_time = frames[#frames].time;
+
+        -- Cek selesai
+        if (playback_time > total_replay_time) then
+            local last_frame = frames[#frames];
+            if (player_char and player_char:FindFirstChild("HumanoidRootPart")) then
+                local hrp = player_char.HumanoidRootPart;
+                local position = xyz_to_vector3(last_frame.position);
+                local rotation = last_frame.rotation or 0;
+                local cframe = CFrame.new(position) * CFrame.Angles(0, rotation, 0);
+                hrp.CFrame = cframe;
+                if player_humanoid then
+                    player_humanoid:Move(xyz_to_vector3(last_frame.moveDirection or {
+                        x = 0,
+                        y = 0,
+                        z = 0
+                    }), false);
+                end
+            end
+            stop_replay();
+            if on_complete then
+                on_complete();
+            end
+            return;
+        end
+
+        -- Dapatkan frame saat ini dan interpolasi faktor
+        local index_a, index_b, lerp_factor = get_playback_frame(frames, playback_time);
+        local frame_a, frame_b = frames[index_a], frames[index_b];
+
+        if (not frame_a or not frame_b) then
+            return;
+        end
+
+        -- Data frame yang diinterpolasi
+        local pos_a = xyz_to_vector3(frame_a.position);
+        local pos_b = xyz_to_vector3(frame_b.position);
+        local vel_a = xyz_to_vector3(frame_a.velocity or {
+            x = 0,
+            y = 0,
+            z = 0
+        });
+        local vel_b = xyz_to_vector3(frame_b.velocity or {
+            x = 0,
+            y = 0,
+            z = 0
+        });
+        local move_a = xyz_to_vector3(frame_a.moveDirection or {
+            x = 0,
+            y = 0,
+            z = 0
+        });
+        local move_b = xyz_to_vector3(frame_b.moveDirection or {
+            x = 0,
+            y = 0,
+            z = 0
+        });
+        local rot_a = frame_a.rotation or 0;
+        local rot_b = frame_b.rotation or 0;
+
+        -- Interpolasi posisi, kecepatan, arah gerak, dan rotasi
+        local interpolated_position = lerp_vector3(pos_a, pos_b, lerp_factor);
+        local interpolated_velocity = lerp_vector3(vel_a, vel_b, lerp_factor);
+        local interpolated_move_direction = lerp_vector3(move_a, move_b, lerp_factor);
+        local interpolated_rotation = lerp_angle(rot_a, rot_b, lerp_factor);
+
+        local hrp = player_char.HumanoidRootPart;
+        local target_cframe = CFrame.new(interpolated_position) * CFrame.Angles(0, interpolated_rotation, 0);
+
+        -- Lerp CFrame (pergerakan yang halus)
+        local lerp_rate = math.clamp(1 - math.exp(-10 * elapsed_time), 0, 1);
+        hrp.CFrame = hrp.CFrame:Lerp(target_cframe, lerp_rate);
+
+        -- Set Velocity
+        pcall(function()
+            hrp.AssemblyLinearVelocity = interpolated_velocity;
+        end);
+
+        -- Pindahkan Humanoid
+        if player_humanoid then
+            player_humanoid:Move(interpolated_move_direction, false);
+        end
+
+        -- Logika Jumping
+        local should_jump = frame_a.jumping or false;
+        if frame_b.jumping then
+            should_jump = true;
+        end
+
+        if (should_jump and not is_jumping) then
+            if player_humanoid then
+                player_humanoid:ChangeState(Enum.HumanoidStateType.Jumping);
+            end
+        end
+        is_jumping = should_jump;
+    end);
+end
+
+-- Fungsi untuk menjalankan Auto Walk (Automatic: Start to End)
+local function run_auto_walk_automatic()
+    auto_checkpoint_index = 0;
+    local function process_next_checkpoint()
+        if not is_auto_mode then
+            return;
+        end
+
+        auto_checkpoint_index = auto_checkpoint_index + 1;
+        if (auto_checkpoint_index > #checkpoint_files) then
+            is_auto_mode = false;
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk",
+                ["Content"] = "Auto walk selesai! Semua checkpoint sudah dilewati.",
+                ["Duration"] = 5,
+                ["Image"] = "check-check"
+            });
+            return;
+        end
+
+        local filename = checkpoint_files[auto_checkpoint_index];
+        local success_ensure, filepath = ensure_checkpoint_file(filename);
+
+        if not success_ensure then
+            rayfield_lib:Notify({
+                ["Title"] = "Error",
+                ["Content"] = "Failed to download: ",
+                ["Duration"] = 5,
+                ["Image"] = "ban"
+            });
+            is_auto_mode = false;
+            return;
+        end
+
+        local checkpoint_data = load_checkpoint_data(filename);
+        if (checkpoint_data and (#checkpoint_data > 0)) then
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk (Automatic)",
+                ["Content"] = "Auto walk berhasil di jalankan",
+                ["Duration"] = 2,
+                ["Image"] = "bot"
+            });
+            task.wait(0.5);
+            start_replay(checkpoint_data, process_next_checkpoint);
+        else
+            rayfield_lib:Notify({
+                ["Title"] = "Error",
+                ["Content"] = "Error loading: " .. filename,
+                ["Duration"] = 5,
+                ["Image"] = "ban"
+            });
+            is_auto_mode = false;
+        end
+    end
+    process_next_checkpoint();
+end
+
+-- Fungsi untuk menjalankan Auto Walk (Manual: Single Checkpoint)
+local function run_auto_walk_manual(filename)
+    is_auto_mode = false;
+    stop_replay();
+
+    local success_ensure, filepath = ensure_checkpoint_file(filename);
+    if not success_ensure then
+        rayfield_lib:Notify({
+            ["Title"] = "Error",
+            ["Content"] = "Failed to ensure",
+            ["Duration"] = 4,
+            ["Image"] = "ban"
+        });
+        return;
+    end
+
+    local checkpoint_data = load_checkpoint_data(filename);
+    if (not checkpoint_data or (#checkpoint_data == 0)) then
+        rayfield_lib:Notify({
+            ["Title"] = "Error",
+            ["Content"] = "File invalid",
+            ["Duration"] = 4,
+            ["Image"] = "ban"
+        });
+        return;
+    end
+
+    rayfield_lib:Notify({
+        ["Title"] = "Auto Walk (Manual)",
+        ["Content"] = "Auto walk berhasil di jalankan",
+        ["Duration"] = 3,
+        ["Image"] = "bot"
+    });
+
+    start_replay(checkpoint_data, function()
+        rayfield_lib:Notify({
+            ["Title"] = "Auto Walk (Manual)",
+            ["Content"] = "Auto walk selesai!",
+            ["Duration"] = 2,
+            ["Image"] = "check-check"
+        });
+    end);
+end
+
+-- Menangani pembaruan karakter untuk menghentikan replay yang sedang berjalan
+local_player.CharacterAdded:Connect(function(new_char)
+    player_char = new_char;
+    player_humanoid = player_char:WaitForChild("Humanoid");
+    player_hrp = player_char:WaitForChild("HumanoidRootPart");
+    if is_playing then
+        stop_replay();
+    end
+end);
+
+-- =========================================================================
+--                          UI TAB AUTO WALK
+-- =========================================================================
+
+local section_info_autowalk = tab_auto_walk:CreateSection("Informasi");
+local paragraph_info_autowalk = tab_auto_walk:CreateParagraph({
+    ["Title"] = "Keterangan !!!",
+    ["Content"] = "- Auto Walk (Settings)\nPada menu ini kamu dapat menjeda Auto Walk yang sedang berjalan atau melanjutkannya kembali.\n\n- Auto Walk (Automatic)\nPada menu ini kamu bisa menjalankan Auto Walk secara otomatis, mulai dari spawnpoint hingga checkpoint terakhir.\n\n- Auto Walk (Manual)\nPada menu ini kamu dapat memilih dari titik mana Auto Walk akan dimulai.\n\n⚠️ Catatan:\nAktifkan hanya salah satu menu (Automatic atau Manual). Menyalakan lebih dari satu auto walk sekaligus dapat menyebabkan bug."
+});
+
+local section_settings_autowalk = tab_auto_walk:CreateSection("Auto Walk (Settings)");
+local button_pause_autowalk = tab_auto_walk:CreateButton({
+    ["Name"] = "⏸️ Pause (Auto Walk)",
+    ["Callback"] = function()
+        if not is_playing then
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk",
+                ["Content"] = "Tidak ada auto walk yang berjalan",
+                ["Duration"] = 3,
+                ["Image"] = "pause"
+            });
+            return;
+        end
+        if is_paused then
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk",
+                ["Content"] = "Auto walk sebelum nya sudah di pause",
+                ["Duration"] = 2,
+                ["Image"] = "pause"
+            });
+            return;
+        end
+        is_paused = true;
+        rayfield_lib:Notify({
+            ["Title"] = "Auto Walk",
+            ["Content"] = "Behasil di pause",
+            ["Duration"] = 2,
+            ["Image"] = "pause"
+        });
+    end
+});
+
+local button_resume_autowalk = tab_auto_walk:CreateButton({
+    ["Name"] = "▶️ Resume (Auto Walk)",
+    ["Callback"] = function()
+        if not is_playing then
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk",
+                ["Content"] = "Tidak ada auto walk yang berjalan",
+                ["Duration"] = 3,
+                ["Image"] = "play"
+            });
+            return;
+        end
+        if not is_paused then
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Walk",
+                ["Content"] = "Auto walk sedang berjalan",
+                ["Duration"] = 2,
+                ["Image"] = "play"
+            });
+            return;
+        end
+        is_paused = false;
+        rayfield_lib:Notify({
+            ["Title"] = "Auto Walk",
+            ["Content"] = "Berhasil di resume",
+            ["Duration"] = 2,
+            ["Image"] = "play"
+        });
+    end
+});
+
+local section_auto_autowalk = tab_auto_walk:CreateSection("Auto Walk (Automatic)");
+local toggle_auto_start_to_end = tab_auto_walk:CreateToggle({
+    ["Name"] = "Auto Walk (Start To End)",
+    ["CurrentValue"] = false,
+    ["Callback"] = function(is_on)
+        if is_on then
+            is_auto_mode = true;
+            run_auto_walk_automatic();
+        else
+            is_auto_mode = false;
+            stop_replay();
+        end
+    end
+});
+
+local section_manual_autowalk = tab_auto_walk:CreateSection("Auto Walk (Manual)");
+
+-- Membuat Toggle untuk setiap checkpoint manual
+local function create_manual_autowalk_toggle(name, filename)
+    tab_auto_walk:CreateToggle({
+        ["Name"] = name,
+        ["CurrentValue"] = false,
+        ["Callback"] = function(is_on)
+            if is_on then
+                run_auto_walk_manual(filename);
+            else
+                stop_replay();
+            end
+        end
+    });
+end
+
+create_manual_autowalk_toggle("Auto Walk (Spawnpoint)", "spawnpoint.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 1)", "checkpoint_1.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 2)", "checkpoint_2.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 3)", "checkpoint_3.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 4)", "checkpoint_4.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 5)", "checkpoint_5.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 6)", "checkpoint_6.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 7)", "checkpoint_7.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 8)", "checkpoint_8.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 9)", "checkpoint_9.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 10)", "checkpoint_10.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 11)", "checkpoint_11.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 12)", "checkpoint_12.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 13)", "checkpoint_13.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 14)", "checkpoint_14.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 15)", "checkpoint_15.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 16)", "checkpoint_16.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 17)", "checkpoint_17.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 18)", "checkpoint_18.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 19)", "checkpoint_19.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 20)", "checkpoint_20.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 21)", "checkpoint_21.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 22)", "checkpoint_22.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 23)", "checkpoint_23.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 24)", "checkpoint_24.json");
+create_manual_autowalk_toggle("Auto Walk (Checkpoint 25)", "checkpoint_25.json");
+
+-- =========================================================================
+--                          LOGIC AUTO SUMMIT & TELEPORT
+-- =========================================================================
+
+local teleport_height_offset = 10; -- Offset Y saat teleport
+local is_auto_summit_automatic = false;
+local auto_summit_delay_auto = 3; -- Delay dalam detik untuk mode otomatis
+local health_changed_conn = nil;  -- Koneksi HealthChanged (untuk No-Fall/Godmode)
+local state_changed_conn = nil;   -- Koneksi StateChanged (untuk anti-freefall)
+
+-- Daftar Checkpoint (Nama dan Koordinat)
+local list_checkpoints = {
+    { ["Name"] = "Spawnpoint", X = 2269.61, Y = 805, Z = -2325.9 },
+    { ["Name"] = "Checkpoint 1", X = 1707.53, Y = 778.17, Z = -2318.39 },
+    { ["Name"] = "Checkpoint 2", X = 1268.03, Y = 778.56, Z = -2293.63 },
+    { ["Name"] = "Checkpoint 3", X = 975.94, Y = 794.55, Z = -2095.81 },
+    { ["Name"] = "Checkpoint 4", X = 1286.09, Y = 769.83, Z = -1751.06 },
+    { ["Name"] = "Checkpoint 5", X = 2228.66, Y = 776.5, Z = -1384.23 },
+    { ["Name"] = "Checkpoint 6", X = 2012.39, Y = 506.56, Z = -785.76 },
+    { ["Name"] = "Checkpoint 7", X = 1100.82, Y = 514.56, Z = -1080.58 },
+    { ["Name"] = "Checkpoint 8", X = 805.16, Y = 409.31, Z = -963.94 },
+    { ["Name"] = "Checkpoint 9", X = 760.19, Y = 394.33, Z = -1166.98 },
+    { ["Name"] = "Checkpoint 10", X = 216.41, Y = 388.7, Z = -1251.38 },
+    { ["Name"] = "Checkpoint 11", X = 41.22, Y = 410.56, Z = -1532.51 },
+    { ["Name"] = "Checkpoint 12", X = 18.46, Y = 538.49, Z = -1786.04 },
+    { ["Name"] = "Checkpoint 13", X = -438.28, Y = 561.95, Z = -2165.36 },
+    { ["Name"] = "Checkpoint 14", X = -1013.82, Y = 352.98, Z = -1913.11 },
+    { ["Name"] = "Checkpoint 15", X = -1418.13, Y = 380.77, Z = -1861.31 },
+    { ["Name"] = "Checkpoint 16", X = -1463.82, Y = 502.47, Z = -1783.54 },
+    { ["Name"] = "Checkpoint 17", X = -1691.18, Y = 546.5, Z = -1781.49 },
+    { ["Name"] = "Checkpoint 18", X = -2085.03, Y = 546.99, Z = -2033.55 },
+    { ["Name"] = "Checkpoint 19", X = -2284.83, Y = 675.05, Z = -1831.06 },
+    { ["Name"] = "Checkpoint 20", X = -1994.56, Y = 768.28, Z = -1487.71 },
+    { ["Name"] = "Checkpoint 21", X = -1476.51, Y = 865.36, Z = -919.19 },
+    { ["Name"] = "Checkpoint 22", X = -1259.77, Y = 857.76, Z = -777 },
+    { ["Name"] = "Checkpoint 23", X = -737.19, Y = 1092.49, Z = -473.89 },
+    { ["Name"] = "Checkpoint 24", X = -308.05, Y = 1309.97, Z = -326.06 },
+    { ["Name"] = "Checkpoint 25", X = -93.53, Y = 1545.86, Z = 128.18 },
+    { ["Name"] = "Puncak Mount Stecu", X = -257.35, Y = 1756.5, Z = 767.79 }
+};
+
+-- Fungsi untuk mengatur kecepatan gerak dan lompatan pemain
+local function set_player_speed(is_normal_speed)
+    local char = game.Players.LocalPlayer.Character;
+    if not char then
+        return;
+    end
+    local humanoid = char:FindFirstChildOfClass("Humanoid");
+    if humanoid then
+        if is_normal_speed then
+            humanoid.WalkSpeed = 16;
+            humanoid.JumpPower = 50;
+        else
+            humanoid.WalkSpeed = 0;
+            humanoid.JumpPower = 0;
+        end
+    end
+end
+
+-- Fungsi untuk mendapatkan Humanoid pemain
+local function get_player_humanoid()
+    local player = game.Players.LocalPlayer;
+    if player.Character then
+        return player.Character:FindFirstChildOfClass("Humanoid");
+    end
+    return nil;
+end
+
+-- Fungsi untuk mengaktifkan No-Fall / Godmode (untuk Auto Summit)
+local function enable_godmode()
+    local humanoid = get_player_humanoid();
+    if not humanoid then
+        return;
+    end
+
+    humanoid.Health = humanoid.MaxHealth;
+    -- Koneksi untuk mengembalikan Health ke MaxHealth (Godmode)
+    health_changed_conn = humanoid.HealthChanged:Connect(function()
+        if is_auto_summit_automatic then
+            humanoid.Health = humanoid.MaxHealth;
+        end
+    end);
+    -- Koneksi untuk mengganti Freefall ke PlatformStanding (Anti-Fall/Ledge Grab)
+    state_changed_conn = humanoid.StateChanged:Connect(function(old_state, new_state)
+        if (is_auto_summit_automatic and (new_state == Enum.HumanoidStateType.Freefall)) then
+            humanoid:ChangeState(Enum.HumanoidStateType.PlatformStanding);
+        end
+    end);
+end
+
+-- Fungsi untuk menonaktifkan No-Fall / Godmode
+local function disable_godmode()
+    if health_changed_conn then
+        health_changed_conn:Disconnect();
+        health_changed_conn = nil;
+    end
+    if state_changed_conn then
+        state_changed_conn:Disconnect();
+        state_changed_conn = nil;
+    end
+end
+
+-- Fungsi untuk melakukan teleportasi dengan hitungan mundur (mode otomatis)
+local function execute_auto_teleport_auto(checkpoint_data, delay_seconds)
+    for countdown = delay_seconds, 1, -1 do
+        if not is_auto_summit_automatic then
+            return false; -- Dibatalkan
+        end
+        rayfield_lib:Notify({
+            ["Title"] = "Teleport " .. checkpoint_data.Name,
+            ["Content"] = "Teleport dalam waktu: " .. countdown,
+            ["Duration"] = 1,
+            ["Image"] = "timer"
+        });
+        task.wait(1);
+    end
+
+    local player = game.Players.LocalPlayer;
+    if (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        -- Teleport HRP
+        player.Character.HumanoidRootPart.CFrame = CFrame.new(checkpoint_data.X, checkpoint_data.Y + teleport_height_offset, checkpoint_data.Z);
+    end
+
+    rayfield_lib:Notify({
+        ["Title"] = "Teleport " .. checkpoint_data.Name,
+        ["Content"] = "Teleport berhasil",
+        ["Duration"] = 2,
+        ["Image"] = "circle-check"
+    });
+    return true;
+end
+
+-- =========================================================================
+--                          UI TAB AUTO SUMMIT
+-- =========================================================================
+
+local section_info_autosummit = tab_auto_summit:CreateSection("Informasi");
+local paragraph_info_autosummit = tab_auto_summit:CreateParagraph({
+    ["Title"] = "Keterangan !!!",
+    ["Content"] = "- Auto Summit (Automatic)\nPada menu ini kamu bisa menjalankan Auto Summit secara otomatis, dari awal hingga akhir.\nKamu juga dapat mengatur kecepatan otomatis pada opsi Setting Speed.\n\n- Auto Summit (Manual)\nPada menu ini kamu bisa memilih checkpoint tertentu untuk memulai Auto Summit secara manual.\nSetelah memilih checkpoint, aktifkan Mulai Auto Summit (Manual) untuk berjalan dari titik tersebut.\nKamu juga dapat mengatur kecepatan manual pada opsi Setting Speed.\n\n⚠️ Catatan:\nGunakan hanya salah satu mode (Automatic atau Manual). Menyalakan keduanya sekaligus dapat menyebabkan bug."
+});
+
+local section_auto_autosummit = tab_auto_summit:CreateSection("Auto Summit (Automatic)");
+local toggle_auto_summit_auto = tab_auto_summit:CreateToggle({
+    ["Name"] = "Auto Summit (Start To End)",
+    ["CurrentValue"] = false,
+    ["Flag"] = "AutoSummit",
+    ["Callback"] = function(is_on)
+        is_auto_summit_automatic = is_on;
+        if is_auto_summit_automatic then
+            task.spawn(function()
+                set_player_speed(false);
+                enable_godmode();
+                while is_auto_summit_automatic do
+                    -- Loop melalui semua checkpoint
+                    for _, checkpoint in ipairs(list_checkpoints) do
+                        if not execute_auto_teleport_auto(checkpoint, auto_summit_delay_auto) then
+                            break;
+                        end
+                    end
+                    rayfield_lib:Notify({
+                        ["Title"] = "Auto Summit (Automatic)",
+                        ["Content"] = "Auto summit selesai",
+                        ["Duration"] = 3,
+                        ["Image"] = "check-check"
+                    });
+                    task.wait(1);
+                end
+                set_player_speed(true);
+                disable_godmode();
+            end);
+        else
+            set_player_speed(true);
+            disable_godmode();
+        end
+    end
+});
+
+local slider_delay_auto_summit = tab_auto_summit:CreateSlider({
+    ["Name"] = "Setting Speed (Automatic)",
+    ["Range"] = {
+        1,
+        10
+    },
+    ["Increment"] = 1,
+    ["Suffix"] = "Detik",
+    ["CurrentValue"] = 3,
+    ["Flag"] = "AutoSummitDelay",
+    ["Callback"] = function(new_delay)
+        auto_summit_delay_auto = new_delay;
+    end
+});
+
+-- ===================================
+-- Auto Summit (Manual) Variabel & UI
+-- ===================================
+
+local section_manual_autosummit = tab_auto_summit:CreateSection("Auto Summit (Manual)");
+local is_auto_summit_manual = false;
+local manual_start_index = 1;
+local auto_summit_delay_manual = 3;
+local selected_start_checkpoint = "";
+
+-- Membuat daftar nama checkpoint untuk dropdown
+local checkpoint_names = {};
+for _, checkpoint in ipairs(list_checkpoints) do
+    table_insert(checkpoint_names, checkpoint.Name);
+end
+
+local dropdown_start_checkpoint = tab_auto_summit:CreateDropdown({
+    ["Name"] = "Pilih Checkpoint",
+    ["Options"] = checkpoint_names,
+    ["CurrentOption"] = selected_start_checkpoint, -- Variabel SelectedStart tidak didefinisikan sebelumnya, menggunakan variabel lokal yang benar
+    ["Flag"] = "StartCheckpointCustom",
+    ["Callback"] = function(selected_option)
+        selected_start_checkpoint = selected_option[1];
+        -- Mencari index yang sesuai dengan nama checkpoint
+        for index, checkpoint in ipairs(list_checkpoints) do
+            if (checkpoint.Name == selected_start_checkpoint) then
+                manual_start_index = index;
+                break;
+            end
+        end
+        rayfield_lib:Notify({
+            ["Title"] = "Auto Summit (Manual)",
+            ["Content"] = "Dimulai dari: " .. selected_start_checkpoint,
+            ["Duration"] = 3,
+            ["Image"] = "map-pin"
+        });
+    end
+});
+
+-- Fungsi untuk melakukan teleportasi dengan hitungan mundur (mode manual)
+local function execute_auto_teleport_manual(checkpoint_data, delay_seconds)
+    for countdown = delay_seconds, 1, -1 do
+        if not is_auto_summit_manual then
+            return false; -- Dibatalkan
+        end
+        rayfield_lib:Notify({
+            ["Title"] = "Teleport " .. checkpoint_data.Name,
+            ["Content"] = "Teleport dalam waktu: " .. countdown,
+            ["Duration"] = 1,
+            ["Image"] = "timer"
+        });
+        task.wait(1);
+    end
+
+    local player = game.Players.LocalPlayer;
+    if (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        -- Teleport HRP
+        player.Character.HumanoidRootPart.CFrame = CFrame.new(checkpoint_data.X, checkpoint_data.Y + teleport_height_offset, checkpoint_data.Z);
+    end
+
+    rayfield_lib:Notify({
+        ["Title"] = "Teleport " .. checkpoint_data.Name,
+        ["Content"] = "Teleport berhasil",
+        ["Duration"] = 1,
+        ["Image"] = "circle-check"
+    });
+    return true;
+end
+
+local toggle_auto_summit_manual = tab_auto_summit:CreateToggle({
+    ["Name"] = "Mulai Auto Summit (Manual)",
+    ["CurrentValue"] = false,
+    ["Flag"] = "AutoSummitCustom",
+    ["Callback"] = function(is_on)
+        is_auto_summit_manual = is_on;
+        if is_auto_summit_manual then
+            task.spawn(function()
+                set_player_speed(false);
+                enable_godmode();
+                while is_auto_summit_manual do
+                    -- Loop dari index yang dipilih hingga akhir
+                    for i = manual_start_index, #list_checkpoints do
+                        local checkpoint = list_checkpoints[i];
+                        if not execute_auto_teleport_manual(checkpoint, auto_summit_delay_manual) then
+                            break;
+                        end
+                    end
+                    manual_start_index = 1; -- Reset ke awal setelah selesai satu putaran
+                    rayfield_lib:Notify({
+                        ["Title"] = "Auto Summit (Manual)",
+                        ["Content"] = "Auto summit telah selesai akan balik lagi ke spawnpoint",
+                        ["Duration"] = 2,
+                        ["Image"] = "flags"
+                    });
+                end
+                set_player_speed(true);
+                disable_godmode();
+            end);
+        else
+            set_player_speed(true);
+            disable_godmode();
+            rayfield_lib:Notify({
+                ["Title"] = "Auto Summit (Manual)",
+                ["Content"] = "Auto summit di batalkan",
+                ["Duration"] = 1,
+                ["Image"] = "ban"
+            });
+        end
+    end
+});
+
+local slider_delay_manual_summit = tab_auto_summit:CreateSlider({
+    ["Name"] = "Setting Speed (Manual)",
+    ["Range"] = {
+        1,
+        10
+    },
+    ["Increment"] = 1,
+    ["Suffix"] = "Detik",
+    ["CurrentValue"] = 3,
+    ["Flag"] = "AutoSummitCustomDelay",
+    ["Callback"] = function(new_delay)
+        auto_summit_delay_manual = new_delay;
+    end
+});
+
+-- =========================================================================
+--                          UI TAB TELEPORT
+-- =========================================================================
+
+-- Fungsi Teleport langsung
+local function execute_teleport(x, y, z, checkpoint_name)
+    local player = game.Players.LocalPlayer;
+    if (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        -- Teleport HRP, menggunakan offset Y
+        player.Character.HumanoidRootPart.CFrame = CFrame.new(x, y + teleport_height_offset, z);
+    end
+    rayfield_lib:Notify({
+        ["Title"] = "Teleport",
+        ["Content"] = "Teleport berhasil ke: " .. checkpoint_name,
+        ["Duration"] = 3,
+        ["Image"] = "check-check"
+    });
+end
+
+local section_info_teleport = tab_teleport:CreateSection("Informasi");
+local paragraph_info_teleport = tab_teleport:CreateParagraph({
+    ["Title"] = "Keterangan !!!",
+    ["Content"] = "- Teleport (Spawnpoint)\nMenu ini akan memindahkanmu langsung ke titik awal (Spawnpoint).\n\n- Teleport (Checkpoint 1 - Puncak)\nMenu ini akan memindahkanmu ke checkpoint sesuai pilihan tombol yang ditekan"
+});
+
+local section_list_teleport = tab_teleport:CreateSection("List All Checkpoint");
+
+-- Membuat tombol Teleport untuk setiap checkpoint
+for _, checkpoint in ipairs(list_checkpoints) do
+    tab_teleport:CreateButton({
+        ["Name"] = "Teleport (" .. checkpoint.Name .. ")",
+        ["Callback"] = function()
+            execute_teleport(checkpoint.X, checkpoint.Y, checkpoint.Z, checkpoint.Name);
+        end
+    });
+end
+
+-- =========================================================================
+--                          UI TAB UPDATE SCRIPT
+-- =========================================================================
+
+local is_updating = false;
+local update_cancellation_flag = {
+    false
+}; -- Menggunakan tabel untuk referensi mutable
+
+local section_info_update = tab_update_script:CreateSection("Update Script Menu");
+local paragraph_info_update = tab_update_script:CreateParagraph({
+    ["Title"] = "Keterangan !!!",
+    ["Content"] = "Pada menu Update Script berfungsi untuk memperbarui script secara manual."
+});
+
+local label_status_update = tab_update_script:CreateLabel("Pengecekan file...");
+
+-- Pengecekan file saat startup
+task.spawn(function()
+    for i, filename in ipairs(checkpoint_files) do
+        local success_ensure = ensure_checkpoint_file(filename);
+        label_status_update:Set(((success_ensure and "✔ Proses Cek File: ") or "❌ Gagal: ") .. " (" .. i .. "/" .. #checkpoint_files .. ")");
+        task.wait(0.5);
+    end
+    label_status_update:Set("✔ Semua file aman");
+end);
+
+local toggle_start_update = tab_update_script:CreateToggle({
+    ["Name"] = "Mulai Update Script",
+    ["CurrentValue"] = false,
+    ["Callback"] = function(is_on)
+        if is_on then
+            is_updating = true;
+            update_cancellation_flag[1] = false;
+            task.spawn(function()
+                label_status_update:Set("🔄 Proses update file...");
+
+                -- Hapus file lama sebelum update
+                for _, filename in ipairs(checkpoint_files) do
+                    local filepath = data_folder_path .. "/" .. filename;
+                    if isfile(filepath) then
+                        delfile(filepath);
+                    end
+                end
+
+                -- Mulai proses download/update
+                for i, filename in ipairs(checkpoint_files) do
+                    if update_cancellation_flag[1] then
+                        break;
+                    end
+
+                    rayfield_lib:Notify({
+                        ["Title"] = "Update Script",
+                        ["Content"] = "Proses Update " .. " (" .. i .. "/" .. #checkpoint_files .. ")",
+                        ["Duration"] = 2,
+                        ["Image"] = "file"
+                    });
+
+                    local success_download, downloaded_data = pcall(function()
+                        return game:HttpGet(json_base_url .. filename);
+                    end);
+
+                    if (success_download and downloaded_data and (#downloaded_data > 0)) then
+                        writefile(data_folder_path .. "/" .. filename, downloaded_data);
+                        label_status_update:Set("📥 Proses Update: " .. " (" .. i .. "/" .. #checkpoint_files .. ")");
+                    else
+                        rayfield_lib:Notify({
+                            ["Title"] = "Update Script",
+                            ["Content"] = "❌ Update script gagal",
+                            ["Duration"] = 3,
+                            ["Image"] = "file"
+                        });
+                        label_status_update:Set("❌ Gagal: " .. " (" .. i .. "/" .. #checkpoint_files .. ")");
+                    end
+                    task.wait(0.3);
+                end
+
+                if not update_cancellation_flag[1] then
+                    rayfield_lib:Notify({
+                        ["Title"] = "Update Script",
+                        ["Content"] = "Successfully!",
+                        ["Duration"] = 5,
+                        ["Image"] = 4483362458
+                    }); -- Image ID kemungkinan ikon "check"
+                else
+                    rayfield_lib:Notify({
+                        ["Title"] = "Update Script",
+                        ["Content"] = "❌ Update canceled",
+                        ["Duration"] = 3,
+                        ["Image"] = 4483362458
+                    });
+                end
+
+                -- Pengecekan file akhir
+                for i, filename in ipairs(checkpoint_files) do
+                    local success_ensure = ensure_checkpoint_file(filename);
+                    label_status_update:Set(((success_ensure and "✔ Cek File: ") or "❌ Failed: ") .. " (" .. i .. "/" .. #checkpoint_files .. ")");
+                    task.wait(0.3);
+                end
+                label_status_update:Set("✔ Semua file aman");
+            end);
+        else
+            is_updating = false;
+            update_cancellation_flag[1] = true; -- Memberi tahu loop update untuk berhenti
+        end
+    end
+});
+
+-- =========================================================================
+--                          UI TAB CREDITS
+-- =========================================================================
+
+local section_credits = tab_credits:CreateSection("Credits List");
+tab_credits:CreateLabel("UI: Rayfield Interface");
+tab_credits:CreateLabel("Dev: Hirako");

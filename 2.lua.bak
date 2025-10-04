@@ -1,0 +1,1058 @@
+--[[
+    Decrypted and Deobfuscated by an AI Assistant.
+    Original script uses XOR encryption for strings and variable aliasing.
+]]
+
+-- Load the UI Library
+local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Libraries/Rayfield/main/source"))();
+
+-- Create the main window
+local Window = Rayfield:CreateWindow({
+    Name = "Hirako | MOUNT STECU",
+    LoadingTitle = "Hirako",
+    LoadingSubtitle = "by rullzsy",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "Hirako_Configs",
+        FileName = "TowerOfHell"
+    }
+});
+
+-- Create Tabs
+local StatusTab = Window:CreateTab("Status", "rbxassetid://10222229487");
+local AutoWalkTab = Window:CreateTab("Auto Walk", "rbxassetid://10222229487");
+local AutoSummitTab = Window:CreateTab("Auto Summit", "rbxassetid://10222229487");
+local TeleportTab = Window:CreateTab("Teleport", "rbxassetid://10222229487");
+local FileManagementTab = Window:CreateTab("File Management", "rbxassetid://10222229487");
+local SettingsTab = Window:CreateTab("Settings", "rbxassetid://10222229487");
+
+-- Roblox Services
+local Players = game:GetService("Players");
+local RunService = game:GetService("RunService");
+local HttpService = game:GetService("HttpService");
+
+-- Local Player and Character variables
+local LocalPlayer = Players.LocalPlayer;
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait();
+local Humanoid = Character:WaitForChild("Humanoid");
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart");
+
+-- Utilities
+local setclipboard = setclipboard or toclipboard;
+
+-- API Configuration
+local ApiConfig = {
+    base_url = "https://api.rullzsy.com/api/v1/tower-of-hell",
+    get_user_endpoint = "/user/get"
+};
+
+-- HTTP Request Wrapper Function
+local function sendApiRequest(url, method, body, headers)
+    method = method or "GET";
+    local requestData = {
+        Url = url,
+        Method = method
+    };
+    if headers then
+        requestData.Headers = headers;
+    end
+    if (body and (method == "POST")) then
+        requestData.Body = body;
+    end
+
+    local success, response = pcall(function()
+        return HttpService:RequestAsync(requestData);
+    end);
+
+    if (success and response) then
+        if (response.Success and (response.StatusCode == 200)) then
+            return true, response.Body;
+        else
+            return false, "HTTP " .. (response.StatusCode or "N/A") .. ": " .. (response.StatusMessage or "Unknown Error");
+        end
+    end
+
+    if (method == "GET") then
+        local getSuccess, getResponse = pcall(function()
+            return HttpService:GetAsync(url, false);
+        end);
+        if (getSuccess and getResponse) then
+            return true, getResponse;
+        end
+        local httpGetSuccess, httpGetResponse = pcall(function()
+            return game:HttpGet(url);
+        end);
+        if (httpGetSuccess and httpGetResponse) then
+            return true, httpGetResponse;
+        end
+    end
+    return false, tostring(response);
+end
+
+-- User Account Data
+local userToken = getgenv().UserToken or nil;
+local userData = {
+    username = "N/A",
+    created_at = "N/A",
+    expire_days = 0,
+    last_update = 0
+};
+
+-- =============================================================
+--  STATUS TAB
+-- =============================================================
+local StatusSection = StatusTab:CreateSection("Informasi Akun Anda");
+local StatusParagraph = StatusTab:CreateParagraph({
+    Title = "📊 Akun Status",
+    Content = "🔄 Menginisialisasi...\n⏳ Tunggu sebentar..."
+});
+local PurchaseParagraph = StatusTab:CreateParagraph({
+    Title = "💡 Ingin beli kunci nya lagi?",
+    Content = "Kamu bisa membeli kunci nya di discord Hirako!"
+});
+
+local function getStatusInfo(daysLeft)
+    if (daysLeft <= 0) then
+        return { emoji = "🔴", status = "Expired" };
+    elseif (daysLeft <= 1) then
+        return { emoji = "🟠", status = "1 hari" };
+    elseif (daysLeft <= 7) then
+        return { emoji = "🟡", status = daysLeft .. " hari" };
+    else
+        return { emoji = "🟢", status = daysLeft .. " hari" };
+    end
+end
+
+local function refreshAccountData()
+    if (not userToken or (userToken == "")) then
+        StatusParagraph:Set({
+            Title = "🚫 Error",
+            Content = "- Kamu tidak memiliki token.\n- Silakan lakukan otentikasi terlebih dahulu di tab otentikasi."
+        });
+        return;
+    end
+
+    StatusParagraph:Set({
+        Title = "🔄 Muat Data Akun",
+        Content = "⏳ Menghubungkan ke server...\n📡 Mendapatkan informasi akun Anda..."
+    });
+
+    local encodedToken = HttpService:UrlEncode(tostring(userToken));
+    local requestUrl = ApiConfig.base_url .. ApiConfig.get_user_endpoint .. "?token=" .. encodedToken;
+    local requestHeaders = {
+        ["Content-Type"] = "application/json",
+        ["Accept"] = "application/json",
+        ["User-Agent"] = "Rullzsy"
+    };
+
+    local success, responseBody = sendApiRequest(requestUrl, "GET", nil, requestHeaders);
+
+    if not success then
+        StatusParagraph:Set({
+            Title = "🚨 Connection Error",
+            Content = "❌ Failed to connect to server.\n🌐 Please check your internet connection.\n\nError: " .. tostring(responseBody)
+        });
+        return;
+    end
+
+    local jsonSuccess, decodedJson = pcall(function()
+        return HttpService:JSONDecode(responseBody);
+    end);
+
+    if not jsonSuccess then
+        StatusParagraph:Set({
+            Title = "🔐 Server Error",
+            Content = "❌ Invalid server response format.\n🛠️ Please try again later."
+        });
+        return;
+    end
+
+    if (not decodedJson or (type(decodedJson) ~= "table")) then
+        StatusParagraph:Set({
+            Title = "🔐 Data Error",
+            Content = "❌ Invalid response structure.\n🛠️ Please contact support."
+        });
+        return;
+    end
+
+    if (decodedJson.status ~= "success") then
+        local errorMessage = tostring(decodedJson.message or "An unknown error occurred.");
+        StatusParagraph:Set({
+            Title = "🔐 Authentication Failed",
+            Content = "❌ " .. errorMessage .. "\n🔄 Please re-authenticate in the Authentication tab."
+        });
+        return;
+    end
+
+    userData.username = tostring(decodedJson.name or "Unknown");
+    userData.created_at = tostring(decodedJson.created_at or "N/A");
+    userData.expire_days = tonumber(decodedJson.expire_days) or 0;
+    userData.role = tostring(decodedJson.role or "Member");
+    userData.last_update = tick();
+
+    local statusInfo = getStatusInfo(userData.expire_days);
+    local memberSince = "N/A";
+    if (userData.created_at ~= "N/A") then
+        local matchSuccess, matchedDate = pcall(function()
+            return userData.created_at:match("(%d%d%d%d-%d%d-%d%d)");
+        end);
+        if (matchSuccess and matchedDate) then
+            memberSince = matchedDate;
+        else
+            memberSince = userData.created_at;
+        end
+    end
+
+    StatusParagraph:Set({
+        Title = "👨🏻‍💼 Welcome, " .. userData.username,
+        Content = string.format("🏷️ Role         : %s\n⏰ Expire       : %s %s\n📅 Member since : %s", userData.role, statusInfo.emoji, statusInfo.status, memberSince)
+    });
+end
+
+local ActionSection = StatusTab:CreateSection("Aksi");
+StatusTab:CreateButton({
+    Name = "🔄 Refesh Informasi Akun",
+    Callback = function()
+        userToken = getgenv().UserToken;
+        refreshAccountData();
+    end
+});
+StatusTab:CreateButton({
+    Name = "🛒 Klik disini untuk mebeli kunci",
+    Callback = function()
+        local discordLink = "https://discord.gg/rullzsy";
+        if setclipboard then
+            setclipboard(discordLink);
+            Rayfield:Notify({
+                Title = "📋 Link Copied!",
+                Content = "Link Discord di salin ke clipboard.\nJoin Hirako Discord server",
+                Duration = 4
+            });
+        else
+            Rayfield:Notify({
+                Title = "🌐 Discord Link",
+                Content = discordLink .. "\nJoin Hirako Discord server",
+                Duration = 5
+            });
+        end
+    end
+});
+
+task.spawn(function()
+    task.wait(2);
+    refreshAccountData();
+end);
+
+-- =============================================================
+--  AUTO WALK / MOVEMENT REPLAY SYSTEM
+-- =============================================================
+local RootFolderName = "Hirako";
+local DataFolderName = RootFolderName .. "/json_mt_stecu";
+
+if not isfolder(RootFolderName) then makefolder(RootFolderName); end
+if not isfolder(DataFolderName) then makefolder(DataFolderName); end
+
+local dataFilesUrl = "https://raw.githubusercontent.com/rullzsy/rullzsy-script-data/main/json_mt_stecu/";
+local CheckpointFiles = {
+    "cp_1.json", "cp_2.json", "cp_3.json", "cp_4.json", "cp_5.json", "cp_6.json",
+    "cp_7.json", "cp_8.json", "cp_9.json", "cp_10.json", "cp_11.json", "cp_12.json",
+    "cp_13.json", "cp_14.json", "cp_15.json", "cp_16.json", "cp_17.json", "cp_18.json",
+    "cp_19.json", "cp_20.json", "cp_21.json", "cp_22.json", "cp_23.json", "cp_24.json",
+    "cp_25.json", "cp_26.json"
+};
+
+-- State variables for movement replay
+local isReplaying = false;
+local replayConnection = nil;
+local isAutoWalkAll = false;
+local currentCheckpointIndex = 0;
+local isPaused = false;
+local wasPaused = false;
+local pauseStartTime = 0;
+local totalPausedTime = 0;
+local lastFrameTime = 0;
+local elapsedTime = 0;
+
+-- Helper functions for movement
+local function toTable(vector) return { x = vector.X, y = vector.Y, z = vector.Z }; end
+local function toVector3(tbl) return Vector3.new(tbl.x, tbl.y, tbl.z); end
+local function lerp(a, b, t) return a + ((b - a) * t); end
+local function lerpVector3(vA, vB, t) return Vector3.new(lerp(vA.X, vB.X, t), lerp(vA.Y, vB.Y, t), lerp(vA.Z, vB.Z, t)); end
+local function lerpAngle(a, b, t)
+    local diff = b - a;
+    while diff > math.pi do diff = diff - (2 * math.pi); end
+    while diff < -math.pi do diff = diff + (2 * math.pi); end
+    return a + (diff * t);
+end
+
+-- File handling functions
+local function downloadFile(fileName)
+    local filePath = DataFolderName .. "/" .. fileName;
+    if isfile(filePath) then
+        return true, filePath;
+    end
+    local success, content = pcall(function()
+        return game:HttpGet(dataFilesUrl .. fileName);
+    end);
+    if (success and content and (#content > 0)) then
+        writefile(filePath, content);
+        return true, filePath;
+    end
+    return false, nil;
+end
+
+local function loadJsonFile(fileName)
+    local filePath = DataFolderName .. "/" .. fileName;
+    if not isfile(filePath) then
+        warn("File does not exist:", filePath);
+        return nil;
+    end
+    local success, data = pcall(function()
+        local fileContent = readfile(filePath);
+        if (not fileContent or (fileContent == "")) then
+            error("File is empty or could not be read.");
+        end
+        return HttpService:JSONDecode(fileContent);
+    end);
+    if (success and data) then
+        return data;
+    else
+        warn("❌ Load error for", fileName, ":", data);
+        return nil;
+    end
+end
+
+-- Keyframe interpolation
+local function findKeyframes(keyframes, time)
+    if (#keyframes == 0) then return nil, nil, 0; end
+    if (time <= keyframes[1].time) then return 1, 1, 0; end
+    if (time >= keyframes[#keyframes].time) then return #keyframes, #keyframes, 0; end
+
+    local low, high = 1, #keyframes;
+    while low < (high - 1) do
+        local mid = math.floor((low + high) / 2);
+        if (keyframes[mid].time <= time) then
+            low = mid;
+        else
+            high = mid;
+        end
+    end
+
+    local prev, next = low, high;
+    local timeDiff = keyframes[next].time - keyframes[prev].time;
+    local alpha = ((timeDiff > 0) and math.clamp((time - keyframes[prev].time) / timeDiff, 0, 1)) or 0;
+    return prev, next, alpha;
+end
+
+-- Movement Replay Control
+local function stopReplay()
+    isReplaying = false;
+    isPaused = false;
+    pauseStartTime = 0;
+    elapsedTime = 0;
+    lastFrameTime = 0;
+    if replayConnection then
+        replayConnection:Disconnect();
+        replayConnection = nil;
+    end
+end
+
+local function startReplay(keyframes, onComplete)
+    if (not keyframes or (#keyframes == 0)) then
+        warn("No keyframes provided to replay.");
+        if onComplete then onComplete(); end
+        return;
+    end
+
+    if isReplaying then stopReplay(); end
+
+    isReplaying = true;
+    isPaused = false;
+    pauseStartTime = 0;
+    elapsedTime = 0;
+    local startTime = tick();
+    lastFrameTime = startTime;
+    local wasJumping = false;
+
+    if replayConnection then replayConnection:Disconnect(); replayConnection = nil; end
+
+    local firstKeyframe = keyframes[1];
+    if (Character and Character:FindFirstChild("HumanoidRootPart")) then
+        local hrp = Character.HumanoidRootPart;
+        local startPos = toVector3(firstKeyframe.position);
+        local startRot = firstKeyframe.rotation or 0;
+        local startCFrame = CFrame.new(startPos) * CFrame.Angles(0, startRot, 0);
+        hrp.CFrame = startCFrame;
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0);
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0);
+        if Humanoid then
+            Humanoid:Move(toVector3(firstKeyframe.moveDirection or { x = 0, y = 0, z = 0 }), false);
+        end
+    end
+
+    replayConnection = RunService.Heartbeat:Connect(function(dt)
+        if not isReplaying then return; end
+
+        if isPaused then
+            if (pauseStartTime == 0) then pauseStartTime = tick(); end
+            lastFrameTime = tick();
+            return;
+        elseif (pauseStartTime > 0) then
+            totalPausedTime = totalPausedTime + (tick() - pauseStartTime);
+            pauseStartTime = 0;
+            lastFrameTime = tick();
+        end
+
+        if (not Character or not Character:FindFirstChild("HumanoidRootPart")) then return; end
+        if (not Humanoid or (Humanoid.Parent ~= Character)) then
+            Humanoid = Character:FindFirstChild("Humanoid");
+        end
+
+        local currentTime = tick();
+        local frameDt = currentTime - lastFrameTime;
+        lastFrameTime = currentTime;
+        frameDt = math.min(frameDt, 0.1);
+        elapsedTime = elapsedTime + frameDt;
+
+        local totalTime = keyframes[#keyframes].time;
+        if (elapsedTime > totalTime) then
+            local lastKeyframe = keyframes[#keyframes];
+            if (Character and Character:FindFirstChild("HumanoidRootPart")) then
+                local hrp = Character.HumanoidRootPart;
+                local endPos = toVector3(lastKeyframe.position);
+                local endRot = lastKeyframe.rotation or 0;
+                local endCFrame = CFrame.new(endPos) * CFrame.Angles(0, endRot, 0);
+                hrp.CFrame = endCFrame;
+                if Humanoid then
+                    Humanoid:Move(toVector3(lastKeyframe.moveDirection or { x = 0, y = 0, z = 0 }), false);
+                end
+            end
+            stopReplay();
+            if onComplete then onComplete(); end
+            return;
+        end
+
+        local prevIdx, nextIdx, alpha = findKeyframes(keyframes, elapsedTime);
+        local prevKey, nextKey = keyframes[prevIdx], keyframes[nextIdx];
+        if (not prevKey or not nextKey) then return; end
+
+        -- Interpolate values
+        local pos = lerpVector3(toVector3(prevKey.position), toVector3(nextKey.position), alpha);
+        local vel = lerpVector3(toVector3(prevKey.velocity or { x = 0, y = 0, z = 0 }), toVector3(nextKey.velocity or { x = 0, y = 0, z = 0 }), alpha);
+        local moveDir = lerpVector3(toVector3(prevKey.moveDirection or { x = 0, y = 0, z = 0 }), toVector3(nextKey.moveDirection or { x = 0, y = 0, z = 0 }), alpha);
+        local rot = lerpAngle(prevKey.rotation or 0, nextKey.rotation or 0, alpha);
+
+        -- Apply to character
+        local hrp = Character.HumanoidRootPart;
+        local targetCFrame = CFrame.new(pos) * CFrame.Angles(0, rot, 0);
+        local lerpAlpha = math.clamp(1 - math.exp(-10 * frameDt), 0, 1);
+        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, lerpAlpha);
+        pcall(function() hrp.AssemblyLinearVelocity = vel; end);
+        if Humanoid then Humanoid:Move(moveDir, false); end
+
+        -- Handle jumping
+        local isJumping = prevKey.jumping or false;
+        if nextKey.jumping then isJumping = true; end
+        if (isJumping and not wasJumping) then
+            if Humanoid then Humanoid:ChangeState(Enum.HumanoidStateType.Jumping); end
+        end
+        wasJumping = isJumping;
+    end);
+end
+
+-- =============================================================
+--  AUTO WALK TAB
+-- =============================================================
+local function startAutoWalkAll()
+    currentCheckpointIndex = 0;
+    local function playNextCheckpoint()
+        if not isAutoWalkAll then return; end
+
+        currentCheckpointIndex = currentCheckpointIndex + 1;
+        if (currentCheckpointIndex > #CheckpointFiles) then
+            isAutoWalkAll = false;
+            Rayfield:Notify({
+                Title = "Auto Walk Selesai",
+                Content = "Kamu berhasil menjalankan semua checkpoint Auto Walk secara otomatis!",
+                Duration = 5,
+                Image = "rbxassetid://4483362458"
+            });
+            return;
+        end
+
+        local fileName = CheckpointFiles[currentCheckpointIndex];
+        local success, _ = downloadFile(fileName);
+        if not success then
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Gagal mengunduh file checkpoint. Silakan coba lagi.",
+                Duration = 5,
+                Image = "rbxassetid://4483362458"
+            });
+            isAutoWalkAll = false;
+            return;
+        end
+
+        local keyframes = loadJsonFile(fileName);
+        if (keyframes and (#keyframes > 0)) then
+            Rayfield:Notify({
+                Title = "Auto Walk (Otomatis)",
+                Content = "Menjalankan Auto Walk untuk Checkpoint " .. tostring(currentCheckpointIndex) .. "/" .. tostring(#CheckpointFiles),
+                Duration = 2,
+                Image = "rbxassetid://4483362458"
+            });
+            task.wait(0.5);
+            startReplay(keyframes, playNextCheckpoint);
+        else
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Gagal memuat data untuk checkpoint: " .. fileName,
+                Duration = 5,
+                Image = "rbxassetid://4483362458"
+            });
+            isAutoWalkAll = false;
+        end
+    end
+    playNextCheckpoint();
+end
+
+local function startManualAutoWalk(fileName)
+    isAutoWalkAll = false;
+    stopReplay();
+    local success = downloadFile(fileName);
+    if not success then
+        Rayfield:Notify({
+            Title = "Error",
+            Content = "Gagal mengunduh file checkpoint. Silakan coba lagi.",
+            Duration = 4,
+            Image = "rbxassetid://4483362458"
+        });
+        return;
+    end
+
+    local keyframes = loadJsonFile(fileName);
+    if (not keyframes or (#keyframes == 0)) then
+        Rayfield:Notify({
+            Title = "Error",
+            Content = "Gagal memuat data untuk checkpoint yang dipilih.",
+            Duration = 4,
+            Image = "rbxassetid://4483362458"
+        });
+        return;
+    end
+
+    Rayfield:Notify({
+        Title = "Auto Walk (Manual)",
+        Content = "Memulai Auto Walk dari Checkpoint yang dipilih. Harap tunggu...",
+        Duration = 3,
+        Image = "rbxassetid://4483362458"
+    });
+    startReplay(keyframes, function()
+        Rayfield:Notify({
+            Title = "Auto Walk Selesai",
+            Content = "Auto Walk untuk checkpoint yang dipilih telah selesai.",
+            Duration = 2,
+            Image = "rbxassetid://4483362458"
+        });
+    end);
+end
+
+-- Update character references on respawn
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    Character = newChar;
+    Humanoid = newChar:WaitForChild("Humanoid");
+    HumanoidRootPart = newChar:WaitForChild("HumanoidRootPart");
+    if isReplaying then
+        stopReplay();
+    end
+end);
+
+-- UI Setup for Auto Walk Tab
+local AutoWalkInfoSection = AutoWalkTab:CreateSection("Informasi");
+AutoWalkTab:CreateParagraph({
+    Title = "💡 Informasi Penting",
+    Content = "- Auto Walk (Settings)\nPada menu ini kamu dapat menjeda Auto Walk yang sedang berjalan atau melanjutkannya kembali.\n\n- Auto Walk (Automatic)\nPada menu ini kamu bisa menjalankan Auto Walk secara otomatis, mulai dari spawnpoint hingga checkpoint terakhir.\n\n- Auto Walk (Manual)\nPada menu ini kamu dapat memilih dari titik mana Auto Walk akan dimulai.\n\n⚠️ Catatan:\nAktifkan hanya salah satu menu (Automatic atau Manual). Menyalakan lebih dari satu auto walk sekaligus dapat menyebabkan bug."
+});
+
+local AutoWalkSettingsSection = AutoWalkTab:CreateSection("Auto Walk (Settings)");
+AutoWalkTab:CreateButton({
+    Name = "⏸️ Pause (Auto Walk)",
+    Callback = function()
+        if not isReplaying then
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Tidak ada Auto Walk yang sedang berjalan untuk dijeda.",
+                Duration = 3,
+                Image = "rbxassetid://4483362458"
+            });
+            return;
+        end
+        if isPaused then
+            Rayfield:Notify({
+                Title = "Info",
+                Content = "Auto Walk sudah dalam keadaan dijeda.",
+                Duration = 2,
+                Image = "rbxassetid://4483362458"
+            });
+            return;
+        end
+        isPaused = true;
+        Rayfield:Notify({
+            Title = "Paused",
+            Content = "Auto Walk berhasil dijeda.",
+            Duration = 2,
+            Image = "rbxassetid://4483362458"
+        });
+    end
+});
+
+AutoWalkTab:CreateButton({
+    Name = "▶️ Resume (Auto Walk)",
+    Callback = function()
+        if not isReplaying then
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Tidak ada Auto Walk yang sedang berjalan untuk dilanjutkan.",
+                Duration = 3,
+                Image = "rbxassetid://4483362458"
+            });
+            return;
+        end
+        if not isPaused then
+            Rayfield:Notify({
+                Title = "Info",
+                Content = "Auto Walk sudah dalam keadaan berjalan.",
+                Duration = 2,
+                Image = "rbxassetid://4483362458"
+            });
+            return;
+        end
+        isPaused = false;
+        Rayfield:Notify({
+            Title = "Resumed",
+            Content = "Auto Walk berhasil dilanjutkan.",
+            Duration = 2,
+            Image = "rbxassetid://4483362458"
+        });
+    end
+});
+
+local AutoWalkAutomaticSection = AutoWalkTab:CreateSection("Auto Walk (Automatic)");
+AutoWalkTab:CreateToggle({
+    Name = "Mulai Auto Walk (Otomatis)",
+    Callback = function(state)
+        if state then
+            isAutoWalkAll = true;
+            startAutoWalkAll();
+        else
+            isAutoWalkAll = false;
+            stopReplay();
+        end
+    end,
+    Enabled = false
+});
+
+local AutoWalkManualSection = AutoWalkTab:CreateSection("Auto Walk (Manual)");
+
+-- Create a toggle for each checkpoint file
+local checkpointToggles = {};
+for i, fileName in ipairs(CheckpointFiles) do
+    local checkpointName = "Checkpoint " .. tostring(i) .. " (Tower " .. tostring(i) .. ")";
+    checkpointToggles[i] = AutoWalkTab:CreateToggle({
+        Name = checkpointName,
+        Callback = function(state)
+            if state then
+                -- Disable all other toggles
+                for j, toggle in ipairs(checkpointToggles) do
+                    if i ~= j then
+                        toggle:Set(false);
+                    end
+                end
+                startManualAutoWalk(fileName);
+            else
+                stopReplay();
+            end
+        end,
+        Enabled = false
+    });
+end
+
+
+-- =============================================================
+--  AUTO SUMMIT TAB
+-- =============================================================
+local summitDelay = 10;
+local isAutoSummitActive = false;
+local manualSummitSpeed = 3;
+local godModeConnection = nil;
+local antiFallConnection = nil;
+local summitCheckpoints = {
+    { Name = "Spawnpoint", X = 2269.61, Y = 805, Z = -2325.9 },
+    { Name = "Checkpoint 1", X = 1707.53, Y = 778.17, Z = -2318.39 },
+    { Name = "Checkpoint 2", X = 1268.03, Y = 778.56, Z = -2293.63 },
+    { Name = "Checkpoint 3", X = 975.94, Y = 794.55, Z = -2095.81 },
+    { Name = "Checkpoint 4", X = 1286.09, Y = 769.83, Z = -1751.06 },
+    { Name = "Checkpoint 5", X = 2228.66, Y = 776.5, Z = -1384.23 },
+    { Name = "Checkpoint 6", X = 2012.39, Y = 506.56, Z = -785.76 },
+    { Name = "Checkpoint 7", X = 1100.82, Y = 514.56, Z = -1080.58 },
+    { Name = "Checkpoint 8", X = 805.16, Y = 409.31, Z = -963.94 },
+    { Name = "Checkpoint 9", X = 760.19, Y = 394.33, Z = -1166.98 },
+    { Name = "Checkpoint 10", X = 216.41, Y = 388.7, Z = -1251.38 },
+    { Name = "Checkpoint 11", X = 41.22, Y = 410.56, Z = -1532.51 },
+    { Name = "Checkpoint 12", X = 18.46, Y = 538.49, Z = -1786.04 },
+    { Name = "Checkpoint 13", X = -438.28, Y = 561.95, Z = -2165.36 },
+    { Name = "Checkpoint 14", X = -1013.82, Y = 352.98, Z = -1913.11 },
+    { Name = "Checkpoint 15", X = -1418.13, Y = 380.77, Z = -1861.31 },
+    { Name = "Checkpoint 16", X = -1463.82, Y = 502.47, Z = -1783.54 },
+    { Name = "Checkpoint 17", X = -1691.18, Y = 546.5, Z = -1781.49 },
+    { Name = "Checkpoint 18", X = -2085.03, Y = 546.99, Z = -2033.55 },
+    { Name = "Checkpoint 19", X = -2284.83, Y = 675.05, Z = -1831.06 },
+    { Name = "Checkpoint 20", X = -1994.56, Y = 768.28, Z = -1487.71 },
+    { Name = "Checkpoint 21", X = -1476.51, Y = 865.36, Z = -919.19 },
+    { Name = "Checkpoint 22", X = -1259.77, Y = 857.76, Z = -777 },
+    { Name = "Checkpoint 23", X = -737.19, Y = 1092.49, Z = -473.89 },
+    { Name = "Checkpoint 24", X = -308.05, Y = 1309.97, Z = -326.06 },
+    { Name = "Checkpoint 25", X = -93.53, Y = 1545.86, Z = 128.18 },
+    { Name = "Puncak", X = -257.35, Y = 1756.5, Z = 767.79 }
+};
+
+local function setWalkspeed(enabled)
+    local player = game.Players.LocalPlayer;
+    if not player.Character then return; end
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid");
+    if humanoid then
+        if enabled then
+            humanoid.WalkSpeed = 16;
+            humanoid.JumpPower = 50;
+        else
+            humanoid.WalkSpeed = 0;
+            humanoid.JumpPower = 0;
+        end
+    end
+end
+
+local function getHumanoid()
+    local player = game.Players.LocalPlayer;
+    if player.Character then
+        return player.Character:FindFirstChildOfClass("Humanoid");
+    end
+    return nil;
+end
+
+local function enableGodMode()
+    local humanoid = getHumanoid();
+    if not humanoid then return; end
+    humanoid.Health = humanoid.MaxHealth;
+    godModeConnection = humanoid.HealthChanged:Connect(function()
+        if isAutoSummitActive then
+            humanoid.Health = humanoid.MaxHealth;
+        end
+    end);
+    antiFallConnection = humanoid.StateChanged:Connect(function(oldState, newState)
+        if (isAutoSummitActive and (newState == Enum.HumanoidStateType.Freefall)) then
+            humanoid:ChangeState(Enum.HumanoidStateType.PlatformStanding);
+        end
+    end);
+end
+
+local function disableGodMode()
+    if godModeConnection then
+        godModeConnection:Disconnect();
+        godModeConnection = nil;
+    end
+    if antiFallConnection then
+        antiFallConnection:Disconnect();
+        antiFallConnection = nil;
+    end
+end
+
+local function summitTeleport(checkpoint, delay)
+    for i = delay, 1, -1 do
+        if not isAutoSummitActive then return false; end
+        Rayfield:Notify({
+            Title = "Teleporting",
+            Content = "Teleporting to " .. checkpoint.Name,
+            Subtext = "Teleporting in " .. i,
+            Duration = 1,
+            Image = "rbxassetid://4483362458"
+        });
+        task.wait(1);
+    end
+
+    local player = game.Players.LocalPlayer;
+    if (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        player.Character.HumanoidRootPart.CFrame = CFrame.new(checkpoint.X, checkpoint.Y + summitDelay, checkpoint.Z);
+    end
+
+    Rayfield:Notify({
+        Title = "Teleported",
+        Content = "Successfully teleported to " .. checkpoint.Name,
+        Duration = 2,
+        Image = "rbxassetid://4483362458"
+    });
+    return true;
+end
+
+-- UI for Auto Summit Tab
+local SummitInfoSection = AutoSummitTab:CreateSection("Informasi Auto Summit");
+AutoSummitTab:CreateParagraph({
+    Title = "💡 Cara Menggunakan",
+    Content = "- Auto Summit (Automatic)\nPada menu ini kamu bisa menjalankan Auto Summit secara otomatis, dari awal hingga akhir.\nKamu juga dapat mengatur kecepatan otomatis pada opsi Setting Speed.\n\n- Auto Summit (Manual)\nPada menu ini kamu bisa memilih checkpoint tertentu untuk memulai Auto Summit secara manual.\nSetelah memilih checkpoint, aktifkan Mulai Auto Summit (Manual) untuk berjalan dari titik tersebut.\nKamu juga dapat mengatur kecepatan manual pada opsi Setting Speed.\n\n⚠️ Catatan:\nGunakan hanya salah satu mode (Automatic atau Manual). Menyalakan keduanya sekaligus dapat menyebabkan bug."
+});
+
+local AutoSummitAutomaticSection = AutoSummitTab:CreateSection("Auto Summit (Automatic)");
+AutoSummitTab:CreateToggle({
+    Name = "Mulai Auto Summit (Otomatis)",
+    Callback = function(state)
+        isAutoSummitActive = state;
+        if isAutoSummitActive then
+            task.spawn(function()
+                setWalkspeed(false);
+                enableGodMode();
+                while isAutoSummitActive do
+                    for _, checkpoint in ipairs(summitCheckpoints) do
+                        if not summitTeleport(checkpoint, manualSummitSpeed) then
+                            break;
+                        end
+                    end
+                    Rayfield:Notify({
+                        Title = "Auto Summit Selesai",
+                        Content = "Kamu berhasil menyelesaikan Auto Summit.",
+                        Duration = 3,
+                        Image = "rbxassetid://4483362458"
+                    });
+                    task.wait(1);
+                end
+                setWalkspeed(true);
+                disableGodMode();
+            end);
+        else
+            setWalkspeed(true);
+            disableGodMode();
+        end
+    end,
+    Enabled = false,
+    Flag = "AutoSummitAutomatic"
+});
+AutoSummitTab:CreateSlider({
+    Name = "Setting Speed (Otomatis)",
+    Range = { 1, 10 },
+    Increment = 1,
+    Suffix = " Detik",
+    CurrentValue = 3,
+    Flag = "AutoSummitSpeed",
+    Callback = function(value)
+        manualSummitSpeed = value;
+    end
+});
+
+local AutoSummitManualSection = AutoSummitTab:CreateSection("Auto Summit (Manual)");
+local isManualSummitActive = false;
+local manualStartCheckpointIndex = 1;
+local manualSummitSpeedManual = 3;
+local manualStartCheckpointName = summitCheckpoints[1].Name;
+
+AutoSummitTab:CreateDropdown({
+    Name = "Pilih Checkpoint Awal",
+    Options = (function()
+        local names = {};
+        for _, cp in ipairs(summitCheckpoints) do table.insert(names, cp.Name); end
+        return names;
+    end)(),
+    CurrentOption = manualStartCheckpointName,
+    Flag = "ManualStartCheckpoint",
+    Callback = function(option)
+        manualStartCheckpointName = option;
+        for i, cp in ipairs(summitCheckpoints) do
+            if (cp.Name == manualStartCheckpointName) then
+                manualStartCheckpointIndex = i;
+                break;
+            end
+        end
+        Rayfield:Notify({
+            Title = "Checkpoint Dipilih",
+            Content = "Checkpoint awal diatur ke: " .. manualStartCheckpointName,
+            Duration = 3,
+            Image = "rbxassetid://4483362458"
+        });
+    end
+});
+
+AutoSummitTab:CreateToggle({
+    Name = "Mulai Auto Summit (Manual)",
+    Callback = function(state)
+        isManualSummitActive = state;
+        if isManualSummitActive then
+            task.spawn(function()
+                setWalkspeed(false);
+                enableGodMode();
+                while isManualSummitActive do
+                    for i = manualStartCheckpointIndex, #summitCheckpoints do
+                        local checkpoint = summitCheckpoints[i];
+                        if not summitTeleport(checkpoint, manualSummitSpeedManual) then
+                            break;
+                        end
+                    end
+                    manualStartCheckpointIndex = 1;
+                    Rayfield:Notify({
+                        Title = "Selesai",
+                        Content = "Auto Summit (Manual) telah selesai. Jika ingin mengulang, matikan dan nyalakan kembali toggle ini.",
+                        Duration = 2,
+                        Image = "rbxassetid://4483362458"
+                    });
+                end
+                setWalkspeed(true);
+                disableGodMode();
+            end);
+        else
+            setWalkspeed(true);
+            disableGodMode();
+            Rayfield:Notify({
+                Title = "Dibatalkan",
+                Content = "Auto Summit (Manual) telah dibatalkan.",
+                Duration = 1,
+                Image = "rbxassetid://4483362458"
+            });
+        end
+    end,
+    Enabled = false,
+    Flag = "AutoSummitManual"
+});
+AutoSummitTab:CreateSlider({
+    Name = "Setting Speed (Manual)",
+    Range = { 1, 10 },
+    Increment = 1,
+    Suffix = " Detik",
+    CurrentValue = 3,
+    Flag = "ManualSummitSpeed",
+    Callback = function(value)
+        manualSummitSpeedManual = value;
+    end
+});
+
+-- =============================================================
+--  TELEPORT TAB
+-- =============================================================
+local function teleportPlayer(x, y, z, locationName)
+    local player = game.Players.LocalPlayer;
+    if (player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then
+        player.Character.HumanoidRootPart.CFrame = CFrame.new(x, y + summitDelay, z);
+    end
+    Rayfield:Notify({
+        Title = "Teleported",
+        Content = "Berhasil teleport ke " .. locationName,
+        Duration = 3,
+        Image = "rbxassetid://4483362458"
+    });
+end
+
+local TeleportInfoSection = TeleportTab:CreateSection("Informasi Teleport");
+TeleportTab:CreateParagraph({
+    Title = "💡 Cara Menggunakan",
+    Content = "- Teleport (Spawnpoint)\nMenu ini akan memindahkanmu langsung ke titik awal (Spawnpoint).\n\n- Teleport (Checkpoint 1 - Puncak)\nMenu ini akan memindahkanmu ke checkpoint sesuai pilihan tombol yang ditekan"
+});
+
+local TeleportButtonsSection = TeleportTab:CreateSection("Tombol Teleport");
+for _, checkpoint in ipairs(summitCheckpoints) do
+    TeleportTab:CreateButton({
+        Name = "Teleport ke " .. checkpoint.Name,
+        Callback = function()
+            teleportPlayer(checkpoint.X, checkpoint.Y, checkpoint.Z, checkpoint.Name);
+        end
+    });
+end
+
+-- =============================================================
+--  FILE MANAGEMENT TAB
+-- =============================================================
+local fileCheckInProgress = false;
+local cancelUpdate = { false };
+local FileManagementInfoSection = FileManagementTab:CreateSection("Informasi File Management");
+FileManagementTab:CreateParagraph({
+    Title = "💡 Tentang File Management",
+    Content = "Menu ini digunakan untuk mengecek dan mengupdate file yang dibutuhkan oleh script agar fitur dapat berjalan dengan lancar.\n\nJika ada file yang gagal diunduh atau rusak, gunakan tombol 'Mulai Update File' untuk memperbaikinya secara otomatis."
+});
+local fileStatusLabel = FileManagementTab:CreateLabel("Status: Siap untuk mengecek file...");
+task.spawn(function()
+    for i, file in ipairs(CheckpointFiles) do
+        local success = downloadFile(file);
+        fileStatusLabel:Set(((success and "✔ Proses Cek File: ") or "❌ Gagal: ") .. "(" .. i .. "/" .. #CheckpointFiles .. ")");
+        task.wait(0.5);
+    end
+    fileStatusLabel:Set("✔ Semua file aman");
+end);
+FileManagementTab:CreateToggle({
+    Name = "Mulai Update File",
+    Callback = function(state)
+        if state then
+            fileCheckInProgress = true;
+            cancelUpdate[1] = false;
+            task.spawn(function()
+                fileStatusLabel:Set("🔄 Proses update file...");
+                for _, file in ipairs(CheckpointFiles) do
+                    local filePath = DataFolderName .. "/" .. file;
+                    if isfile(filePath) then
+                        delfile(filePath);
+                    end
+                end
+                for i, file in ipairs(CheckpointFiles) do
+                    if cancelUpdate[1] then break; end
+                    Rayfield:Notify({
+                        Title = "Mengunduh File",
+                        Content = "Sedang mengunduh file... " .. "(" .. i .. "/" .. #CheckpointFiles .. ")",
+                        Duration = 2,
+                        Image = "rbxassetid://4483362458"
+                    });
+                    local success, content = pcall(function()
+                        return game:HttpGet(dataFilesUrl .. file);
+                    end);
+                    if (success and content and (#content > 0)) then
+                        writefile(DataFolderName .. "/" .. file, content);
+                        fileStatusLabel:Set("📥 Proses Update: " .. "(" .. i .. "/" .. #CheckpointFiles .. ")");
+                    else
+                        Rayfield:Notify({
+                            Title = "Error",
+                            Content = "❌ Update script gagal",
+                            Duration = 3,
+                            Image = "rbxassetid://4483362458"
+                        });
+                        fileStatusLabel:Set("❌ Gagal: " .. "(" .. i .. "/" .. #CheckpointFiles .. ")");
+                    end
+                    task.wait(0.3);
+                end
+                if not cancelUpdate[1] then
+                    Rayfield:Notify({
+                        Title = "Selesai",
+                        Content = "Semua file berhasil diupdate.",
+                        Duration = 5,
+                        Image = "rbxassetid://4483362458"
+                    });
+                else
+                    Rayfield:Notify({
+                        Title = "Dibatalkan",
+                        Content = "❌ Update canceled",
+                        Duration = 3,
+                        Image = "rbxassetid://4483362458"
+                    });
+                end
+                for i, file in ipairs(CheckpointFiles) do
+                    local success = downloadFile(file);
+                    fileStatusLabel:Set(((success and "✔ Cek File: ") or "❌ Failed: ") .. "(" .. i .. "/" .. #CheckpointFiles .. ")");
+                    task.wait(0.3);
+                end
+                fileStatusLabel:Set("✔ Semua file aman");
+            end);
+        else
+            fileCheckInProgress = false;
+            cancelUpdate[1] = true;
+        end
+    end,
+    Enabled = false
+});
+
+-- =============================================================
+--  SETTINGS TAB
+-- =============================================================
+local SettingsSection = SettingsTab:CreateSection("Hirako");
+SettingsTab:CreateLabel("© 2024 Hirako. All Rights Reserved.");
+SettingsTab:CreateLabel("Made with ❤️ by hirako");
